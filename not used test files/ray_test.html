@@ -1,0 +1,158 @@
+<html>
+    <body>
+        <div id="container"></div>
+        <script src="js/three.min.js"></script>
+        <script src="myOwnScript/shader/test_shader.js"></script>
+        <script src="myOwnScript/shader/test_shader2.js"></script>
+        <script id="vertexShader" type="x-shader/x-vertex">
+            void main() {
+                gl_Position = vec4( position, 1.0 );
+            }
+        </script>
+        <script id="fragmentShader" type="x-shader/x-fragment">
+            uniform vec2 u_resolution;
+            uniform vec2 u_mouse;
+            uniform float u_time;
+
+            void main() {
+                vec2 st = gl_FragCoord.xy/u_mouse.xy;
+                gl_FragColor=vec4(st.x,st.y,0.0,1.0);
+            }
+        </script>
+        <script>
+            var container;
+            var camera, scene, renderer;
+            var uniforms;
+            var mouse;
+            var raycaster;
+            var meshes;
+
+            init();
+            animate();
+
+            function init() {
+                container = document.getElementById( 'container' );
+
+                camera = new THREE.PerspectiveCamera( 75, window.innerWidth/window.innerHeight, 0.1, 3000 );
+                camera.position.z = 5;
+                camera.position.y = 2;
+
+                scene = new THREE.Scene();
+                //init light
+                day_light = new THREE.DirectionalLight(0xBBFFFF, 0.8);
+                day_light.position.set( 0.25, 3, 0.25 );
+                scene.add(day_light);
+
+                raycaster = new THREE.Raycaster();
+
+                uniforms = THREE.TestShader.uniforms;
+                uniforms.tDiffuse["value"] = new THREE.TextureLoader().load('image/fish.png');
+                uniforms.amount["value"] = 1.0;
+                var cube_Material = new THREE.ShaderMaterial( {
+                    uniforms: uniforms,
+                    vertexShader: THREE.TestShader.vertexShader,
+                    fragmentShader: THREE.TestShader.fragmentShader,
+                    transparent: true
+                } );
+                var common_Material = new THREE.MeshPhongMaterial( { map: new THREE.TextureLoader().load('image/fish.png'), transparent: true } );
+
+                meshes = new THREE.Object3D();
+
+                var cubeGeometry = new THREE.BoxGeometry(1,1,1);
+                var mesh = new THREE.Mesh(cubeGeometry, common_Material);
+                mesh.hover = false;
+                mesh.according_text_id = "one";
+                meshes.add(mesh)
+                camera.lookAt(mesh.position);
+                var mesh2 = new THREE.Mesh(cubeGeometry, common_Material);
+                mesh2.position.x += 2;
+                mesh2.hover = false;
+                mesh2.according_text_id = "two";
+                meshes.add(mesh2);
+                var mesh3 = new THREE.Mesh(cubeGeometry, common_Material);
+                mesh3.position.x -= 2;
+                mesh3.hover = false;
+                mesh3.according_text_id = "three";
+                meshes.add(mesh3);
+
+                scene.add(meshes);
+                
+                mouse = new THREE.Vector2();
+
+                document.onmousemove = function(e){
+                    mouse.x = 2 * (e.clientX / window.innerWidth) - 1;
+                    mouse.y = 1 - 2 * ( e.clientY / window.innerHeight );
+                    //console.log(mouse);
+
+                }
+
+                renderer = new THREE.WebGLRenderer();
+                renderer.setPixelRatio( window.devicePixelRatio );
+                renderer.setSize( window.innerWidth, window.innerHeight );
+                container.appendChild( renderer.domElement );
+
+            }
+
+            function show_text(pos, id)
+            {
+                var p = new THREE.Vector3(pos.x, pos.y, pos.z);
+                var vector = p.project(camera);
+                vector.x = (vector.x + 1) / 2 * window.innerWidth;
+                vector.y = -(vector.y - 1) / 2 * window.innerHeight;
+                var test_text = document.getElementById(id);
+                test_text.style.visibility = "visible";
+                test_text.style.position = "absolute";
+                test_text.style.color = "blue";
+                test_text.style.top = vector.y + 'px';
+                test_text.style.left = vector.x + 'px';
+                return vector;
+            }
+
+            function animate() {
+                requestAnimationFrame( animate );
+                raycaster.setFromCamera( mouse, camera );
+                var intersects = raycaster.intersectObjects( meshes.children );
+                meshes.traverse(function(child){
+                    if (child instanceof THREE.Mesh)
+                    {
+                        child.hover = false;
+                    }
+                });
+
+                //console.log(intersects.length);
+                //document.getElementById("test_text").style.visibility = "hidden";
+                for ( var i = 0; i < intersects.length; i++ ) {
+                    //alert(intersects[i].object.tag);
+                    //console.log(intersects[i].object.position);
+                    //console.log(intersects[i].object.hover);
+                    intersects[i].object.hover =  true;
+                    show_text(intersects[i].object.position, intersects[i].object.according_text_id);
+                    
+                }
+                var print_result = "haha ";
+                meshes.traverse(function(child){
+                    
+                    if (child instanceof THREE.Mesh)
+                    {
+                        if(child.hover == false)
+                        {
+                            document.getElementById(child.according_text_id).style.visibility = "hidden";
+                        }
+                    }
+                    
+                });
+                //console.log(print_result);
+                render();
+            }
+
+            function render() {
+                renderer.render( scene, camera );
+            }
+            //hide the text intro class
+            $(".intro_text").hide();
+        </script>
+        <p id="one" class="intro_text">Oh boy 1!</p>
+        <p id="two" class="intro_text">Oh boy 2!</p>
+        <p id="three" class="intro_text">Oh boy 3!</p>
+    </body>
+</html>

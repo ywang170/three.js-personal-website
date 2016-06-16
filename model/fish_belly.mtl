@@ -1,0 +1,16 @@
+# 3ds Max Wavefront OBJ Exporter v0.97b - (c)2007 guruware
+# 创建的文件:10.06.2016 20:52:14
+
+newmtl Material__3
+	Ns 10.0000
+	Ni 1.5000
+	d 0.7000
+	Tr 0.3000
+	Tf 0.7000 0.7000 0.7000 
+	illum 2
+	Ka 0.5880 0.5880 0.5880
+	Kd 0.5880 0.5880 0.5880
+	Ks 0.2700 0.2700 0.2700
+	Ke 0.0000 0.0000 0.0000
+	map_Ka image\fish_body_texture.jpg
+	map_Kd image\fish_body_texture.jpg

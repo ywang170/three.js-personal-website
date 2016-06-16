@@ -1,0 +1,804 @@
+<html>
+	<head>
+		<title>Wang, Yizhou's site</title>
+		<link rel="stylesheet" href="css/style.css" type="text/css" />
+	</head>
+	<body>
+		<script src="js/three.min.js"></script>
+		<script src="js/jquery-1.12.3.min.js"></script>
+
+		<script src="myHelperFunc/vergil_tracing_system.js"></script>
+
+		<script src="js/DDSLoader.js"></script>
+		<script src="js/MTLLoader.js"></script>
+		<script src="js/OBJLoader.js"></script>
+
+		<script src="myHelperFunc/vergil_obj_loader.js"></script>
+
+        <script src="myShader/vergil_water_shader.js"></script>
+        <script src="myShader/vergil_bright_shader.js"></script>
+
+        <script src="js/shaders/CopyShader.js"></script>
+        <script src="js/postprocessing/EffectComposer.js"></script>
+        <script src="js/postprocessing/RenderPass.js"></script>
+        <script src="js/postprocessing/MaskPass.js"></script>
+        <script src="js/postprocessing/ShaderPass.js"></script>
+
+		<div id="container"></div>
+		<div class="progress">
+			<div class="progress_bar">
+				Loading...
+				<div class="progress_bar_complete"></div>
+			</div>
+		</div>
+		<script>
+			////////////////////////////////////setting//////////////////////////////////////////////
+			/*
+			global variables
+			*/
+			//scene setting variables
+			var scene;
+			var camera;
+			var renderer;
+			var mouse;
+			var raycaster;
+			var day_light;
+			var ambient_light;
+			var composer;
+			var loading_manager;
+			var effect, effect2, effect3, effect4;
+			//functional variables
+			var currently_pressed_keys = {};
+			var current_hover_object = null;
+			var move_lock = true, rotate_lock = true, hover_lock = true, navigating = false;
+			var auto_rotate_frame = 0;
+			var auto_rotate_speed;
+			var original_distance = 0.0;
+			var auto_navigation_speed = 0.0;
+			var already_loaded_mini_page = {};
+			//objects setting variables
+			var fishes = [];
+			var clickable_objects = [];
+
+			/*
+			init setting
+			*/
+			//init scene
+			scene = new THREE.Scene();
+
+			//init camera
+			camera = new THREE.PerspectiveCamera( 60, window.innerWidth/window.innerHeight, 0.1, 3000 );
+			camera.position.z = -50;
+			camera.position.y = 30;
+			camera.lookAt(new THREE.Vector3(40,35,0));
+
+			//init renderer
+			renderer = new THREE.WebGLRenderer();
+			renderer.setSize( window.innerWidth, window.innerHeight );
+			document.getElementById("container").appendChild( renderer.domElement );
+			renderer.shadowMapEnabled = true;
+
+			//init day light
+			day_light = new THREE.DirectionalLight(0xBBFFFF, 0.8);
+			day_light.position.set( 0.25, 0.5, -0.25 );
+			scene.add(day_light);
+			day_light.castShadow = true;
+		    day_light.shadowCameraVisible = true;
+		    day_light.shadowMapWidth = 2048;
+		    day_light.shadowMapHeight = 2048;
+		    var d = 300;
+		    day_light.shadowCameraLeft = -d;
+		    day_light.shadowCameraRight = d;
+		    day_light.shadowCameraTop = d;
+		    day_light.shadowCameraBottom = -d;
+		    day_light.shadowCameraFar = 500;
+		    day_light.shadowDarkness = 0.2;
+
+		    //init ambient light
+			ambient_light = new THREE.AmbientLight(0x104E8B);
+			scene.add(ambient_light);
+
+			//init skybox
+			var textureLoader = new THREE.TextureLoader();
+			var texture0 = textureLoader.load( 'image/skybox/under_water/ft.jpg' );
+			var texture1 = textureLoader.load( 'image/skybox/under_water/bk.jpg' );
+			var texture2 = textureLoader.load( 'image/skybox/under_water/up.jpg' );
+			var texture3 = textureLoader.load( 'image/skybox/under_water/dn.jpg' );
+			var texture4 = textureLoader.load( 'image/skybox/under_water/rt.jpg' );
+			var texture5 = textureLoader.load( 'image/skybox/under_water/lf.jpg' );
+			var materials = [
+			    new THREE.MeshBasicMaterial( { map: texture0, side:THREE.BackSide, fog:false } ),
+			    new THREE.MeshBasicMaterial( { map: texture1, side:THREE.BackSide, fog:false } ),
+			    new THREE.MeshBasicMaterial( { map: texture2, side:THREE.BackSide, fog:false } ),
+			    new THREE.MeshBasicMaterial( { map: texture3, side:THREE.BackSide, fog:false } ),
+			    new THREE.MeshBasicMaterial( { map: texture4, side:THREE.BackSide, fog:false } ),
+			    new THREE.MeshBasicMaterial( { map: texture5, side:THREE.BackSide, fog:false } )
+			];
+			var faceMaterial = new THREE.MeshFaceMaterial( materials );
+			var geometry = new THREE.BoxGeometry( 2000, 2000, 2000 );
+			var skybox = new THREE.Mesh( geometry, faceMaterial );		 
+			scene.add(skybox);
+
+			//init fog
+			scene.fog = new THREE.Fog(0x10388c, 1, 1000);
+
+			//init mouse
+			mouse = new THREE.Vector2();
+
+			//init raycaster
+			raycaster = new THREE.Raycaster();
+
+			/*
+			key handle
+			*/
+			document.onkeydown = handleKeyDown;
+    		document.onkeyup = handleKeyUp;
+			function handleKeyDown(event) 
+			{
+				currently_pressed_keys[event.keyCode] = true;
+			}
+
+			function handleKeyUp(event) {
+				currently_pressed_keys[event.keyCode] = false;
+			}
+
+			/*
+			mouse handle
+			*/
+			var is_mouse_down = false;
+			var currentX = 0.0;
+			var currentY = 0.0;
+			var last_checkedX = 0.0;
+			var last_checkedY = 0.0;
+			document.onmousedown = function(event){
+				is_mouse_down = true;
+				currentX = event.clientX;
+				currentY = event.clientY;
+				last_checkedX = currentX;
+				last_checkedY = currentY;
+				if(current_hover_object != null && hover_lock == false)
+				{
+					move_lock = true;
+					rotate_lock = true;
+					hover_lock = true;
+					target_object_rotation(10);
+				}
+			}
+			document.onmouseup = function(event){
+				is_mouse_down = false;
+			}
+			document.onmousemove = function(event){
+				mouse.x = 2 * (event.clientX / window.innerWidth) - 1;
+                mouse.y = 1 - 2 * ( event.clientY / window.innerHeight );
+				if(is_mouse_down == false)
+				{
+					return
+				}
+				else
+				{
+					currentX = event.clientX;
+					currentY = event.clientY;
+					mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+					mouse.y = (event.clientY / window.innerHeight) * 2 - 1;
+				}
+			}
+
+			/*
+			shader effect
+			*/
+			composer = new THREE.EffectComposer( renderer );
+            composer.addPass( new THREE.RenderPass( scene, camera ) );
+
+            effect = new THREE.ShaderPass( THREE.VergilWaterShader );
+            effect.uniforms['centerX'].value = 0.8;
+            effect.uniforms['centerY'].value = 0.8;
+            composer.addPass( effect );
+            effect2 = new THREE.ShaderPass( THREE.VergilWaterShader );
+            effect2.uniforms['centerX'].value = 0.2;
+            effect2.uniforms['centerY'].value = 0.2;
+            composer.addPass( effect2 );
+            effect3 = new THREE.ShaderPass( THREE.VergilWaterShader );
+            effect3.uniforms['centerX'].value = 0.2;
+            effect3.uniforms['centerY'].value = 0.8;
+            composer.addPass( effect3 );
+            effect4 = new THREE.ShaderPass( THREE.VergilWaterShader );
+            effect4.uniforms['centerX'].value = 0.8;
+            effect4.uniforms['centerY'].value = 0.2;
+            effect4.renderToScreen = true;
+            composer.addPass( effect4 );
+
+            //loading loading_manager
+			var loading_manager = new THREE.LoadingManager(); 
+			loading_manager.onProgress = function ( item, loaded, total ) { 
+				$(".progress_bar_complete").width(parseFloat(loaded)/parseFloat(total) * 400 + 10);
+				 };
+			loading_manager.onLoad = function(){
+				$(".progress").hide();
+			}
+
+			////////////////////////////////////technical helper funcs/////////////////////////////////
+			/*
+			function used for mouse rotate navigation
+			*/
+			function rotateAroundWorldAxis(object, axis, radians) {
+			    var q = new THREE.Quaternion();
+
+				q.setFromAxisAngle( axis, radians ); // axis must be normalized, angle in radians
+				object.quaternion.multiplyQuaternions( q, object.quaternion );
+			}
+			
+			/*
+			function to rotate camera toward the target object
+			*/
+			function target_object_rotation(frame){
+				var camera_pos = camera.position;
+				//get target and camera direction
+				var new_direction = new THREE.Vector3(  current_hover_object.position.x - camera_pos.x, 
+														current_hover_object.position.y - camera_pos.y,
+														current_hover_object.position.z - camera_pos.z).normalize() ;
+				//get camera direction
+				var pLocal = new THREE.Vector3( 0, 0, -1 );
+				var pWorld = pLocal.applyMatrix4( camera.matrixWorld );
+				var camera_direction = pWorld.sub( camera.position ).normalize();
+		
+				var rotate_to_be_done_y_axis = Math.atan2(new_direction.x, new_direction.z) -
+											   Math.atan2(camera_direction.x, camera_direction.z);
+				var rotate_to_be_done_x_axis = Math.atan2(Math.sqrt(
+															Math.pow(new_direction.z, 2)+ 
+														  	Math.pow(new_direction.x, 2)
+														  	), new_direction.y) -
+											   Math.atan2(Math.sqrt(
+															Math.pow(camera_direction.z, 2)+ 
+														  	Math.pow(camera_direction.x, 2)
+														  	), camera_direction.y);
+				auto_rotate_speed = [rotate_to_be_done_y_axis/frame, 
+									 rotate_to_be_done_x_axis/frame];
+				auto_rotate_frame = frame;
+			}
+
+			/*
+			show the text if mouse hover on a clickable object
+			*/
+			function show_text(pos, id)
+            {
+                var p = new THREE.Vector3(pos.x, pos.y, pos.z);
+                var vector = p.project(camera);
+                vector.x = (vector.x + 1) / 2 * window.innerWidth;
+                vector.y = -(vector.y - 1) / 2 * window.innerHeight;
+                var test_text = document.getElementById(id);
+                test_text.style.visibility = "visible";
+                test_text.style.top = vector.y + 'px';
+                test_text.style.left = vector.x + 'px';
+            }
+
+            /*
+            deal with mouse raycast interaction
+            */
+            function mouse_ray_interact()
+            {
+            	var contact_an_object = false;
+            	raycaster.setFromCamera( mouse, camera );
+            	for(i = 0; i < clickable_objects.length; i++)
+            	{
+            		var intersects = raycaster.intersectObjects( clickable_objects[i].children, true );
+            		if(intersects.length == 0 || contact_an_object || hover_lock)
+            		{
+            			clickable_objects[i].hover == false;
+            			if(document.getElementById(clickable_objects[i].tag) != null)
+                    	{
+                    		document.getElementById(clickable_objects[i].tag).style.visibility = "hidden";
+                    	}                   	
+            		}
+            		else
+            		{
+            			clickable_objects[i].hover == true;
+            			show_text(clickable_objects[i].position, clickable_objects[i].tag);
+            			contact_an_object = true;
+            			current_hover_object = clickable_objects[i];
+            		}
+            	}
+            	if(contact_an_object == false && hover_lock == false)
+            	{
+            		current_hover_object = null;
+            	}
+            }
+
+            function create_gulphishyu(pos, rotateY)
+            {
+            	//auto tracing group
+				var cube_tracing1 = load_obj('model/fish_head.obj', 'model/fish_head.mtl', loading_manager);
+				cube_tracing1.position.x = pos.x;
+				cube_tracing1.position.y = pos.y;
+				cube_tracing1.position.z = 1 + pos.z;
+				var cube_tracing2 = load_obj('model/fish_neck.obj', 'model/fish_neck.mtl', loading_manager);
+				cube_tracing2.position.x = pos.x;
+				cube_tracing2.position.y = pos.y;
+				cube_tracing2.position.z = -2 + pos.z;
+				var cube_tracing3 = load_obj('model/fish_body.obj', 'model/fish_body.mtl', loading_manager);
+				cube_tracing3.position.x = pos.x;
+				cube_tracing3.position.y = pos.y;
+				cube_tracing3.position.z = -7.5 + pos.z;
+				var cube_tracing4 = load_obj('model/fish_belly.obj', 'model/fish_belly.mtl', loading_manager);
+				cube_tracing4.position.x = pos.x;
+				cube_tracing4.position.y = pos.y;
+				cube_tracing4.position.z = -10.5 + pos.z;
+				var cube_tracing5 = load_obj('model/fish_tail.obj', 'model/fish_tail.mtl', loading_manager);
+				cube_tracing5.position.x = pos.x;
+				cube_tracing5.position.y = pos.y;
+				cube_tracing5.position.z = -15 + pos.z;
+				var cube_tracing_array = [cube_tracing1, cube_tracing2, cube_tracing3, cube_tracing4, cube_tracing5];
+
+				result = tracing_system(cube_tracing_array);
+				result.this_object.rotateOnAxis (new THREE.Vector3(0,1,0), rotateY);
+
+				return result;
+            }
+
+            function load_obj_crystal()
+			{
+				//add shader
+				var shader = THREE.BrightShader;
+				var uniforms = shader.uniforms;
+				var texture = new THREE.TextureLoader().load('image/crystal.jpg');
+				texture.wrapS = THREE.RepeatWrapping;
+				texture.wrapT = THREE.RepeatWrapping;
+				texture.repeat.set( 4, 4 );
+				uniforms.tDiffuse["value"] = texture;
+
+				var crystal_material = new THREE.ShaderMaterial( {
+				    uniforms: uniforms,
+				    fragmentShader: shader.fragmentShader,
+				    vertexShader: shader.vertexShader,
+				    transparent: true
+				} );
+				var group = new THREE.Object3D();
+				var mtlLoader = new THREE.MTLLoader();
+				//If you don't set base url then base url will become string "undefined", this means
+				//for some path you give to system (for example, path of texture), the system will make 
+				//the path into "undefined" + path. "C/Desktop" will become "undefinedC/Desktop"
+				mtlLoader.setBaseUrl("");
+				mtlLoader.load( 'model/crystal.mtl', function( materials ) {
+					materials.preload();
+					var objLoader = new THREE.OBJLoader(loading_manager);
+					objLoader.setMaterials( materials );
+					objLoader.load( 'model/crystal.obj', function ( object ) {
+						object.traverse( function( node ) { 
+							if ( node instanceof THREE.Mesh ) 
+								{ 
+									node.castShadow = true; 
+									node.receiveShadow = true;
+									node.material = crystal_material;
+								} 
+						} );
+						group.add(object);
+					});
+				});
+				mtlLoader.load( "model/crystal_base.mtl", function( materials ) {
+					materials.preload();
+					var objLoader = new THREE.OBJLoader();
+					objLoader.setMaterials( materials );
+					objLoader.load( "model/crystal_base.obj", function ( object ) {
+						object.traverse( function( node ) { 
+							if ( node instanceof THREE.Mesh ) 
+								{ 
+									node.castShadow = true; 
+									node.receiveShadow = true;
+								} 
+						} );
+						group.add(object);
+					});
+				});
+				//var self_light = new THREE.PointLight( 0x99FF99, 1, 10, 1 );
+				//group.add(self_light);
+				scene.add( group );
+				return group;
+			}
+
+            function create_clickable(tag, pos)
+            {
+            	var clickable = load_obj_crystal();				
+				clickable.hover = false;
+				clickable.tag = tag;
+				scene.add(clickable);
+				clickable.position.set(pos.x, pos.y, pos.z);
+				clickable_objects.push(clickable);
+            }
+
+            function validate_camera_pos(){
+            	if(camera.position.x > 500)
+            	{
+            		camera.position.x = 500;
+            	}
+            	if(camera.position.x < -500)
+            	{
+            		camera.position.x = -500;
+            	}
+            	if(camera.position.y > 500)
+            	{
+            		camera.position.y = 500;
+            	}
+            	if(camera.position.y < -500)
+            	{
+            		camera.position.y = -500;
+            	}
+            	if(camera.position.z > 500)
+            	{
+            		camera.position.z = 500;
+            	}
+            	if(camera.position.z < -500)
+            	{
+            		camera.position.z = -500;
+            	}
+            }
+			//////////////////////////////////// Scene building ///////////////////////////////////
+			//some hoverable shining object
+			create_clickable("personal_info", new THREE.Vector3(40,25,0));
+			create_clickable("education", new THREE.Vector3(43, 84, 120));
+			create_clickable("epic_intern", new THREE.Vector3(250, 155, -250));		
+			create_clickable("django_meowlook", new THREE.Vector3(-250,130,-80));
+			create_clickable("virtual_lab", new THREE.Vector3(400, 180, 0));
+			//create_clickable("six", new THREE.Vector3(43, 84, 120));
+
+			//create tower
+			var tower1 = load_obj('model/tower.obj', 'model/tower.mtl', loading_manager);
+			tower1.position.x += 250;
+			tower1.position.z -= 250;
+			tower1.position.y -= 55;
+
+			var tower2 = load_obj('model/tower.obj', 'model/tower.mtl', loading_manager);
+			tower2.position.y -= 80;
+			tower2.position.z -= 80;
+			tower2.position.x -= 250;
+
+			var tower3 = load_obj('model/tower.obj', 'model/tower.mtl', loading_manager);
+			tower3.position.y -= 30;
+			tower3.position.x += 400;
+
+			//create temple
+			var temple = load_obj('model/temple.obj', 'model/temple.mtl', loading_manager);
+			temple.position.z += 200;
+			temple.position.y -= 50;
+			temple.rotation.y -= 0.5;
+
+			//create ground
+			var rock = load_obj('model/rock.obj', 'model/rock.mtl', loading_manager);
+			rock.position.z += 200;
+			rock.position.y -= 50;
+			rock.rotation.y -= 0.5;
+
+			var rock2 = load_obj('model/rock2.obj', 'model/rock2.mtl', loading_manager);
+			rock2.position.x -= 250;
+			rock2.position.y -= 80;
+			rock2.position.z -= 80;
+			
+			var rock3 = load_obj('model/rock3.obj', 'model/rock3.mtl', loading_manager);
+			rock3.position.y -= 30;
+			rock3.position.x += 400;
+
+			//create ruins
+			var pillar = load_obj('model/pillar.obj', 'model/pillar.mtl', loading_manager);
+			pillar.position.y -= 70;
+			pillar.rotation.y -= 2.07;
+
+			pillar = load_obj('model/pillar.obj', 'model/pillar.mtl', loading_manager);
+			pillar.position.z += 290;
+			pillar.position.x += 290;
+
+			pillar = load_obj('model/pillar2.obj', 'model/pillar2.mtl', loading_manager);
+			pillar.position.z += 170;
+			pillar.position.x += 490;
+
+			pillar = load_obj('model/pillar2.obj', 'model/pillar2.mtl', loading_manager);
+			pillar.position.z += 170;
+			pillar.position.x += 470;
+			pillar.position.y += 20;
+
+			pillar = load_obj('model/pillar2.obj', 'model/pillar2.mtl', loading_manager);
+			pillar.rotation.x += 3.14
+			pillar.position.z += 150;
+			pillar.position.x += 260;
+			pillar.position.y -= 20;
+
+			pillar = load_obj('model/pillar3.obj', 'model/pillar3.mtl', loading_manager);
+			pillar.rotation.y -= 0.5;
+			pillar.position.z -= 150;
+			pillar.position.x += 150;
+			pillar.position.y -= 80;	
+
+			pillar = load_obj('model/pillar3.obj', 'model/pillar3.mtl', loading_manager);
+			pillar.rotation.y -= 2.07;
+			pillar.position.z += 100;
+			pillar.position.x += 265;
+			pillar.position.y -= 60;			
+			
+			//create fish(Some one tell me WHY here I can NOT use for loop?????????????)
+			var fish1 = create_gulphishyu(new THREE.Vector3(5,35,-55), 1.0);
+			fishes.push(fish1);
+			var fish2 = create_gulphishyu(new THREE.Vector3(-15,28,-50), 0.8);
+			fishes.push(fish2);
+			var fish3 = create_gulphishyu(new THREE.Vector3(100,300,-150), 1.0);
+			fishes.push(fish3);
+			var fish4 = create_gulphishyu(new THREE.Vector3(-200,0,-40), -1.3);
+			fishes.push(fish4);
+			var fish5 = create_gulphishyu(new THREE.Vector3(-150,70,0), 0.6);
+			fishes.push(fish5);
+			var fish6 = create_gulphishyu(new THREE.Vector3(350,30,20), 0.8);
+			fishes.push(fish6);
+			var fish7 = create_gulphishyu(new THREE.Vector3(300,150,-20), 0);
+			fishes.push(fish7);
+			var fish8 = create_gulphishyu(new THREE.Vector3(120,300,-120), 0);
+			fishes.push(fish8);
+			var fish9 = create_gulphishyu(new THREE.Vector3(-100,100,-300), -1.57);
+			fishes.push(fish9);
+			var fish10 = create_gulphishyu(new THREE.Vector3(-150,120,-300), 1.57);
+			fishes.push(fish10);
+
+			//particles
+			var particles = new THREE.Geometry;
+			for (var p = 0; p < 2000; p++) {
+			    var particle = new THREE.Vector3(Math.random() * 2000 - 1000, Math.random() * 2000 - 1000, Math.random() * 2000 - 1000);
+			    particles.vertices.push(particle);
+			}
+			var particleTexture = new THREE.TextureLoader().load('image/twinkle2.png');
+			var particleMaterial = new THREE.ParticleBasicMaterial({ color: 0xeeeeee, map: particleTexture, size: 4 , transparent: true, blending:THREE.AdditiveBlending, fog:false});
+			var particleSystem = new THREE.ParticleSystem(particles, particleMaterial);
+ 			scene.add(particleSystem);
+
+ 			
+
+			//////////////////////////////////// Loop ////////////////////////////////////////////
+			function render(){
+				//make sure the frame of render
+				requestAnimationFrame( render );
+
+				//update camera by mouse
+				if(is_mouse_down && rotate_lock == false)
+				{
+					var change_in_X = currentX - last_checkedX;
+					var change_in_Y = currentY - last_checkedY;
+					last_checkedX = currentX;
+					last_checkedY = currentY;
+					//camera.rotateOnAxis (new THREE.Vector3(0,1,0), -0.003 * change_in_X);
+					rotateAroundWorldAxis(camera, new THREE.Vector3(0,1,0), -0.002 * change_in_X)
+					camera.rotateOnAxis (new THREE.Vector3(1,0,0), -0.002 * change_in_Y);
+					//rotateAroundWorldAxis(camera, new THREE.Vector3(1,0,0), -0.003 * change_in_Y)
+				}
+
+				//update camera by key input
+				//up
+				if(currently_pressed_keys[38] && rotate_lock == false)
+				{
+					camera.rotateOnAxis (new THREE.Vector3(1,0,0), 0.015);
+					//camera.rotation.x += 0.01;
+				}
+				//left
+				if(currently_pressed_keys[37] && rotate_lock == false)
+				{
+					rotateAroundWorldAxis(camera, new THREE.Vector3(0,1,0), 0.015)
+				}
+				//down
+				if(currently_pressed_keys[40] && rotate_lock == false)
+				{
+					camera.rotateOnAxis (new THREE.Vector3(1,0,0), -0.015);
+					//camera.rotation.x -= 0.01;
+				}
+				//right
+				if(currently_pressed_keys[39] && rotate_lock == false)
+				{
+					rotateAroundWorldAxis(camera, new THREE.Vector3(0,1,0), -0.015)
+				}
+				//w
+				if(currently_pressed_keys[87] && move_lock == false)
+				{
+					camera.translateZ(-0.25);
+					validate_camera_pos();
+				}
+				//a
+				if(currently_pressed_keys[65] && move_lock == false)
+				{
+					camera.translateX(-0.25);
+					validate_camera_pos();
+				}
+				//s
+				if(currently_pressed_keys[83] && move_lock == false)
+				{
+					camera.translateZ(0.25);
+					validate_camera_pos();
+				}
+				//d
+				if(currently_pressed_keys[68] && move_lock == false)
+				{
+					camera.translateX(0.25);
+					validate_camera_pos();
+				}			
+
+
+				//auto navigation
+				if(auto_rotate_frame != 0)
+				{
+					rotateAroundWorldAxis(camera, new THREE.Vector3(0,1,0), auto_rotate_speed[0]);
+					camera.rotateOnAxis (new THREE.Vector3(1,0,0), -auto_rotate_speed[1]);
+					auto_rotate_frame -= 1;
+					if(auto_rotate_frame <= 0)
+					{
+						camera.lookAt(current_hover_object.position);
+						navigating = true;
+						auto_rotate_frame = 0;
+						original_distance = distance_between(camera, current_hover_object);
+						auto_navigation_speed = 0.0;
+					}
+				}
+				if(navigating)
+				{
+					var distance_now = distance_between(camera, current_hover_object);
+					if( distance_now < 20)
+					{
+						navigating = false;
+						var target_id = "#" + current_hover_object.tag + "_page";
+						$(target_id).fadeIn(180);
+						if(!(target_id in already_loaded_mini_page))
+						{
+							$(target_id).find(".mini_page_content").load(current_hover_object.tag + ".html", 
+								function( response, status, xhr ) {
+									if ( status == "error" ) {
+										var msg = "Sorry but there was an error and page is not loaded ";
+										alert(msg);
+									}
+									else
+									{
+										$(target_id).find(".mini_page_content").css('background', 'none');
+										already_loaded_mini_page[target_id] =  true;
+									}
+								});							
+						}												
+					}
+					else
+					{
+						if(distance_now >= original_distance / 2.0)
+						{
+							auto_navigation_speed += 0.2;
+						}
+						else
+						{
+							auto_navigation_speed -= 0.2;
+						}
+						camera.translateZ(-auto_navigation_speed);
+					}					
+				}
+
+				//raycaster
+				mouse_ray_interact();
+
+				//roate particle
+				particleSystem.rotation.y += 0.0003;
+				var pCount = particles.length;
+				while (pCount--) {
+
+					// get the particle
+					var particle =
+					  particles.vertices[pCount];
+
+					// check if we need to reset
+					if (particle.position.y < -800) {
+					  particle.position.y = 800;
+					  particle.velocity.y = 0;
+					}
+				// update the velocity with
+				// a splat of randomniz
+				particle.velocity.y -= Math.random() *1;
+				// and the position
+				particle.position.addSelf(
+				  particle.velocity);
+				}
+				// flag to the particle system
+				// that we've changed its vertices.
+				particleSystem.geometry.__dirtyVertices = true;
+
+				//move fishes
+				for(i = 0; i < 10; i++)
+				{
+					fishes[i].random_move(false, 0.2, 600, 500, -500, 500, -500, 500, -500);
+				}	
+
+				//clickable obj rotate
+				for(i = 0; i < clickable_objects.length; i++)
+				{
+					clickable_objects[i].rotation.y += 0.003;
+				}		
+
+				//change shader parameter
+				effect.uniforms['time'].value += Math.random();
+				effect2.uniforms['time'].value += Math.random();
+				effect3.uniforms['time'].value += Math.random();
+				effect4.uniforms['time'].value += Math.random();
+
+				//render scene
+                composer.render();
+			};				
+			//run the function
+			render();
+
+			//////////////////////////////////// other html related func ////////////////////////////////////////
+			function setVolume(id, vol){
+				var myAudio = document.getElementById(id);  
+    			myAudio.volume = vol;
+			}
+			
+			$(document).ready(function(){
+				$(".mini_page").hide();
+				$("#start").click(function(){
+					$(".intro").fadeOut(600);
+					move_lock = false;
+					rotate_lock = false;
+					hover_lock = false;
+					$("#bgm").trigger("play");
+				});
+				$(".done").click(function(){
+					$(".mini_page").hide();
+					move_lock = false;
+					rotate_lock = false;
+					hover_lock = false;
+					current_hover_object = null;
+				})
+			});
+			
+
+		</script>
+
+        <div class="intro">
+
+        	<div class="intro_title">Yizhou Wang's personal site</div>
+        	<div class="intro_guide">
+        		<div class="profile"></div>
+        		<p>I do love games! So I build my self-introduction site into a game :)</p>
+        		<br/>
+        		<p>How to play:</p>
+        		<p>1. Camera rotation: Use up, down, left, right arrow on keyboard, or click then drag mouse to rotate camera</p>
+        		<p>2. Movement: Use W, A, S, D on keyboard to move around</p>
+        		<p>3. Navigation: Click on a crystal to navigate to next page</p>
+        		<br/>
+        		<p>Enjoy! And feel free to contact me! (ywang170@outlook.com)</p>
+        		<p id="reference">*coding in: javacript(webgl) *library used: Three.js</p>
+        	</div>
+        	<div class="intro_options">
+        		<div class="intro_option" id="resume">View my resume</div>
+        		<div class="intro_option" id="start">Start game!</div>
+        	</div>
+        </div>
+
+        <p id="personal_info" class="tag">Click: My personal information</p>
+        <p id="education" class="tag">Click: My education</p>
+        <p id="epic_intern" class="tag">Click: Internship-Epic systems</p>
+        <p id="django_meowlook" class="tag">Click: Django forum website: meowlook</p>
+        <p id="virtual_lab" class="tag">Click: virtual lab project</p>
+
+        <div class="mini_page" id="personal_info_page">
+        	<div class="mini_page_content"></div>
+        	<div class="done">Done</div>
+        </div>
+        <div class="mini_page" id="education_page">
+        	<div class="mini_page_content"></div>
+        	<div class="done">Done</div>
+        </div>
+        <div class="mini_page" id="epic_intern_page">
+        	<div class="mini_page_content"></div>
+        	<div class="done">Done</div>
+        </div>
+        <div class="mini_page" id="django_meowlook_page">
+        	<div class="mini_page_content"></div>
+        	<div class="done">Done</div>
+        </div>
+        <div class="mini_page" id="virtual_lab_page">
+        	<div class="mini_page_content"></div>
+        	<div class="done">Done</div>
+        </div>
+		<audio id="water_sound" onloadeddata="setVolume('water_sound',0.2)" autoplay loop>
+		  <source src="sound/underwater.mp3" type="audio/mpeg">
+		  Your browser does not support the audio element.
+		</audio>
+		<audio id="bgm" onloadeddata="setVolume('bgm',0.2)" loop>
+		  <source src="sound/bgm.mp3" type="audio/mpeg">
+		  Your browser does not support the audio element.
+		</audio>
+	</body>
+</html>

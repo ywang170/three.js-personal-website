@@ -1,0 +1,78 @@
+<html>
+    <body>
+        <div id="container"></div>
+        <script src="js/three.min.js"></script>
+        <script src="myOwnScript/shader/water_shader.js"></script>
+        <script src="myOwnScript/shader/test_shader.js"></script>
+        <script src="myOwnScript/shader/test_shader2.js"></script>
+        <script src="js/shaders/CopyShader.js"></script>
+        <script src="js/shaders/DotScreenShader.js"></script>
+        <script src="js/shaders/RGBShiftShader.js"></script>
+        <script src="js/postprocessing/EffectComposer.js"></script>
+        <script src="js/postprocessing/RenderPass.js"></script>
+        <script src="js/postprocessing/MaskPass.js"></script>
+        <script src="js/postprocessing/ShaderPass.js"></script>
+        <script>
+            var composer;
+            var camera, scene, renderer;
+            var uniforms;
+            var effect, effect2;
+
+            init();
+            animate();
+
+            function init() {
+                renderer = new THREE.WebGLRenderer();
+                renderer.setPixelRatio( window.devicePixelRatio );
+                renderer.setSize( window.innerWidth, window.innerHeight );
+                document.body.appendChild( renderer.domElement );
+
+                camera = new THREE.PerspectiveCamera( 75, window.innerWidth/window.innerHeight, 0.1, 3000 );
+                camera.position.z = 5;
+                camera.position.y = 2;
+
+                scene = new THREE.Scene();
+                //init light
+                day_light = new THREE.DirectionalLight(0xBBFFFF, 0.8);
+                day_light.position.set( 0.25, 3, 0.25 );
+                scene.add(day_light);
+
+                var common_Material = new THREE.MeshPhongMaterial( { map: new THREE.TextureLoader().load('image/fish.png'), transparent: true } );
+
+                var cubeGeometry = new THREE.BoxGeometry(1,1,1);
+                var mesh = new THREE.Mesh(cubeGeometry, common_Material);
+                scene.add(mesh);
+                camera.lookAt(mesh.position);
+                var mesh2 = new THREE.Mesh(cubeGeometry, common_Material);
+                mesh2.position.x -= 2;
+                scene.add(mesh2);
+                var mesh3 = new THREE.Mesh(cubeGeometry, common_Material);
+                mesh3.position.x += 3;
+                scene.add(mesh3);
+                
+                composer = new THREE.EffectComposer( renderer );
+                composer.addPass( new THREE.RenderPass( scene, camera ) );
+
+                effect = new THREE.ShaderPass( THREE.TestShader );
+                effect.renderToScreen = true;
+                composer.addPass( effect );
+
+                /*
+                effect2 = new THREE.ShaderPass( THREE.MirrorShader );
+                effect2.uniforms[ 'side' ].value = 2;
+                effect2.renderToScreen = true;
+                composer.addPass( effect2 );
+                */
+
+            }
+
+            function animate() {
+                requestAnimationFrame( animate );
+                effect.uniforms['time'].value += 1.0;
+                composer.render();
+                
+            }
+
+        </script>
+    </body>
+</html>
